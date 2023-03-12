@@ -1,9 +1,9 @@
 #include "CalServo.h"
 
 CalServo::CalServo(int pin, uint32_t freq, ledc_channel_t channel, ledc_timer_t timer, ledc_timer_bit_t timer_res) 
-    : pin(pin), freq(freq), channel(channel), timer(timer), timer_res(timer_res) {
-    this->a = 0;
-    this->b = 1;
+    : _pin(pin), _freq(freq), _channel(channel), _timer(timer), _timer_res(timer_res) {
+    _a = 0;
+    _b = 1;
 }
 
 /**
@@ -17,8 +17,8 @@ CalServo::CalServo(int pin, uint32_t freq, ledc_channel_t channel, ledc_timer_t 
 void CalServo::refresh_fitter(int* pwm_list, int* degree_list, int data_len) {
     //Check if there is no data.
     if(data_len < 1) {
-        this->a = 0;
-        this->b = 1;
+        _a = 0;
+        _b = 1;
     }
 
     else {
@@ -36,8 +36,8 @@ void CalServo::refresh_fitter(int* pwm_list, int* degree_list, int data_len) {
         }
 
         //Calculate and store the constants of the linear equation.
-        this->a = (float) ((sumY * sumXSquare - sumX * sumXY) / (data_len * sumXSquare - sumX * sumX));
-        this->b = (float) ((data_len * sumXY - sumX * sumY) / (data_len * sumXSquare - sumX * sumX));
+        _a = (float) ((sumY * sumXSquare - sumX * sumXY) / (data_len * sumXSquare - sumX * sumX));
+        _b = (float) ((data_len * sumXY - sumX * sumY) / (data_len * sumXSquare - sumX * sumX));
     }
 }
 
@@ -47,14 +47,14 @@ void CalServo::refresh_fitter(int* pwm_list, int* degree_list, int data_len) {
  */
 void CalServo::set_PWM(int pwm) {
     //Calculate the maximum duty value.
-    int max_duty = pow(2, ((double) this->timer_res)) - 1;
+    int max_duty = pow(2, ((double) _timer_res)) - 1;
 
     //Calculate the desired duty value.
-    uint32_t duty = max_duty * pwm * this->freq / 1000000;
+    uint32_t duty = max_duty * pwm * _freq / 1000000;
 
     //Send the signal to the pin.
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, this->channel, duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, this->channel));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, _channel, duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, _channel));
 }
 
 /**
@@ -63,10 +63,10 @@ void CalServo::set_PWM(int pwm) {
  */
 void CalServo::set_degree(int degree) {
     //Calculate the PWM value equivalent to the given degree.
-    int pwm = (int) (this->a + this->b * degree);
+    int pwm = (int) (_a + _b * degree);
 
     //Send the PWM value.
-    this->set_PWM(pwm);
+    set_PWM(pwm);
 }
 
 /**
@@ -76,20 +76,20 @@ void CalServo::init() {
     // Prepare and then apply the LEDC PWM timer configuration
     ledc_timer_config_t ledc_timer = {
         .speed_mode       = LEDC_LOW_SPEED_MODE,
-        .duty_resolution  = this->timer_res,
-        .timer_num        = this->timer,
-        .freq_hz          = this->freq,
+        .duty_resolution  = _timer_res,
+        .timer_num        = _timer,
+        .freq_hz          = _freq,
         .clk_cfg          = LEDC_AUTO_CLK
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
     // Prepare and then apply the LEDC PWM channel configuration
     ledc_channel_config_t ledc_channel = {
-        .gpio_num       = this->pin,
+        .gpio_num       = _pin,
         .speed_mode     = LEDC_LOW_SPEED_MODE,
-        .channel        = this->channel,
+        .channel        = _channel,
         .intr_type      = LEDC_INTR_DISABLE,
-        .timer_sel      = this->timer,
+        .timer_sel      = _timer,
         .duty           = 0,
         .hpoint         = 0
     };

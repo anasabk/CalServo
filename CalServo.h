@@ -9,12 +9,12 @@
 
 class CalServo {
 private:
-    int pin;
-    uint32_t freq;
-    ledc_channel_t channel;
-    ledc_timer_t timer;
-    ledc_timer_bit_t timer_res;
-    double a, b;
+    int _pin;
+    uint32_t _freq;
+    ledc_channel_t _channel;
+    ledc_timer_t _timer;
+    ledc_timer_bit_t _timer_res;
+    double _a, _b;
 
 public:
     CalServo(int pin, uint32_t freq, ledc_channel_t channel, ledc_timer_t timer, ledc_timer_bit_t timer_res);
