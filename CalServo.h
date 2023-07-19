@@ -1,31 +1,39 @@
 #ifndef CALSERVO_H_
 #define CALSERVO_H_
 
-#include <cmath>
-
-#include "lwip/sys.h"
-#include "driver/ledc.h"
+#include "PCA9685.h"
 
 
 class CalServo {
 public:
-    CalServo(int pin, uint32_t freq, ledc_channel_t channel, ledc_timer_t timer, ledc_timer_bit_t timer_res);
+    CalServo(PCA9685* cont_p, int channel);
+    ~CalServo();
 
-    void init();
+    void refresh_fitter(const int* pwm_list, const float* rad_list, int data_len);
 
-    void refresh_fitter(int* pwm_list, int* degree_list, int data_len);
+    void refresh_fitter(const int* pwm_list, const int* deg_list, int data_len);
 
-    void set_PWM(int pwm);
+    void set_PWM(int pwm_us);
 
-    void set_degree(int degree);
+    void set_rad(float rad);
+
+    void set_rad_off(float offset);
+
+    void sweep(float start, float dest, int duration_ms);
+
+    void sweep(float dest, int duration_ms);
+
+    void sweep_offset(float offset, int duration_ms);
+
+    int getChannel();
+
+    float get_last_rad();
 
 private:
-    int m_pin;
-    uint32_t m_freq;
-    ledc_channel_t m_channel;
-    ledc_timer_t m_timer;
-    ledc_timer_bit_t m_timer_res;
-    double m_a, m_b;
+    int channel;
+    PCA9685* controller;
+    float fitter_a, fitter_b;
+    float last_rad;
 };
 
 #endif

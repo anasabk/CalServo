@@ -1,24 +1,28 @@
 #include "CalServo.h"
 
-CalServo::CalServo(int pin, uint32_t freq, ledc_channel_t channel, ledc_timer_t timer, ledc_timer_bit_t timer_res) 
-    : m_pin(pin), m_freq(freq), m_channel(channel), m_timer(timer), m_timer_res(timer_res) {
-    m_a = 0;
-    m_b = 1;
+#include <cmath>
+#include <unistd.h>
+#include <iostream>
+#include <sys/time.h>
+
+
+CalServo::CalServo(PCA9685* cont_p, int channel) {
+    this->controller = cont_p;
+    this->channel = channel;
+    this->fitter_a = 0;
+    this->fitter_b = 1;
+    this->last_rad = 0;
 }
 
-/**
- * @brief Refresh the linear equation used to calculate PWM
- * values from given degrees.
- * @param pwm_list Pointer to array of PWM signals.
- * @param degree_list Pointer to array of degrees.
- * @param data_len Length of the arrays.
- * @attention Both pwm_list and degree_list should be of the same length.
- */
-void CalServo::refresh_fitter(int* pwm_list, int* degree_list, int data_len) {
+CalServo::~CalServo() {
+
+}
+
+void CalServo::refresh_fitter(const int* pwm_list, const float* rad_list, int data_len) {
     //Check if there is no data.
     if(data_len < 1) {
-        m_a = 0;
-        m_b = 1;
+        fitter_a = 0;
+        fitter_b = 1;
     }
 
     else {
@@ -29,69 +33,118 @@ void CalServo::refresh_fitter(int* pwm_list, int* degree_list, int data_len) {
             
         //Calculate the summations needed by the linear fitting formula.
         for(int i = 0; i < data_len; i++){
-            sumX += degree_list[i];
+            sumX += rad_list[i];
             sumY += pwm_list[i];
-            sumXSquare += degree_list[i] * degree_list[i];
-            sumXY += degree_list[i] * pwm_list[i];
+            sumXSquare += rad_list[i] * rad_list[i];
+            sumXY += rad_list[i] * pwm_list[i];
         }
 
         //Calculate and store the constants of the linear equation.
-        m_a = (float) ((sumY * sumXSquare - sumX * sumXY) / (data_len * sumXSquare - sumX * sumX));
-        m_b = (float) ((data_len * sumXY - sumX * sumY) / (data_len * sumXSquare - sumX * sumX));
+        fitter_a = (float) ((sumY * sumXSquare - sumX * sumXY) / (data_len * sumXSquare - sumX * sumX));
+        fitter_b = (float) ((data_len * sumXY - sumX * sumY) / (data_len * sumXSquare - sumX * sumX));
     }
 }
 
-/**
- * @brief Send PWM signal to the servo motor.
- * @param pwm The PWM signal to send
- */
-void CalServo::set_PWM(int pwm) {
-    //Calculate the maximum duty value.
-    int max_duty = pow(2, ((double) m_timer_res)) - 1;
+void CalServo::refresh_fitter(const int* pwm_list, const int* deg_list, int data_len) {
+    //Check if there is no data.
+    if(data_len < 1) {
+        fitter_a = 0;
+        fitter_b = 1;
+    }
 
-    //Calculate the desired duty value.
-    uint32_t duty = max_duty * pwm * m_freq / 1000000;
+    else {
+        float sumX = 0, 
+              sumY = 0, 
+              sumXSquare = 0, 
+              sumXY = 0;
+            
+        //Calculate the summations needed by the linear fitting formula.
+        for(int i = 0; i < data_len; i++){
+            sumX += deg_list[i]*M_PI/180;
+            sumY += pwm_list[i];
+            sumXSquare += pow(deg_list[i]*M_PI/180, 2);
+            sumXY += deg_list[i]*M_PI/180 * pwm_list[i];
+        }
 
-    //Send the signal to the pin.
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, m_channel, duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, m_channel));
+        //Calculate and store the constants of the linear equation.
+        fitter_a = (float) ((sumY * sumXSquare - sumX * sumXY) / (data_len * sumXSquare - sumX * sumX));
+        fitter_b = (float) ((data_len * sumXY - sumX * sumY) / (data_len * sumXSquare - sumX * sumX));
+    }
 }
 
-/**
- * @brief Set the servo motor to the given degree.
- * @param degree The degree to set the servo motor at.
- */
-void CalServo::set_degree(int degree) {
-    //Calculate the PWM value equivalent to the given degree.
-    int pwm = (int) (m_a + m_b * degree);
-
-    //Send the PWM value.
-    set_PWM(pwm);
+void CalServo::set_PWM(int pwm_us) {
+    controller->set_pwm_us(channel, pwm_us);
 }
 
-/**
- * @brief Initialize the servo motor configurations.
- */
-void CalServo::init() {
-    // Prepare and then apply the LEDC PWM timer configuration
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode       = LEDC_LOW_SPEED_MODE,
-        .duty_resolution  = m_timer_res,
-        .timer_num        = m_timer,
-        .freq_hz          = m_freq,
-        .clk_cfg          = LEDC_AUTO_CLK
-    };
-    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+void CalServo::set_rad(float rad) {
+    int pwm_us = fitter_a + fitter_b * rad;
+    controller->set_pwm_us(channel, pwm_us);
+    last_rad = rad;
+}
 
-    // Prepare and then apply the LEDC PWM channel configuration
-    ledc_channel_config_t ledc_channel = {
-        .gpio_num       = m_pin,
-        .speed_mode     = LEDC_LOW_SPEED_MODE,
-        .channel        = m_channel,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .timer_sel      = m_timer,
-        .duty           = 0,
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+void CalServo::set_rad_off(float offset) {
+    int pwm_us = fitter_a + fitter_b * (last_rad + offset);
+    controller->set_pwm_us(channel, pwm_us);
+    last_rad += offset;
+}
+
+void CalServo::sweep(float start, float dest, int dur_ms) {
+    if(start == dest)
+        return;
+    
+    int dt_ns = dur_ms / abs(dest - start) * 1000000 / 0.0175;
+    int dir = (dest - start) > 0 ? 1 : -1;
+    float current = start;
+    
+    struct timespec timeNow;
+    clock_gettime(CLOCK_MONOTONIC, &timeNow);
+    
+    while(current*dir < dest*dir) {
+        set_rad(current);
+        current += dir;
+
+        // Add dt_ns to current time
+        timeNow.tv_nsec += dt_ns; // dt_ns in nanoseconds
+
+        // Handle overflow
+        while (timeNow.tv_nsec >= 1000000000L) {
+            timeNow.tv_nsec -= 1000000000L;
+            timeNow.tv_sec++;
+        }
+
+        // Sleep until the next dt_ns point
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &timeNow, nullptr);
+    }
+}
+
+void CalServo::sweep(float dest, int dur_ms) {
+    if(last_rad == -1)
+        return;
+
+    if(dest > 180 || dest < 0) {
+        std::cerr << "servo " << channel << ": Limit reached, degree: " << dest << std::endl;
+        return;
+    }
+    
+    sweep(last_rad, dest, dur_ms);
+}
+
+void CalServo::sweep_offset(float offset, int dur_ms) {
+    if(last_rad == -1)
+        return;
+
+    if(offset == 0) {
+        set_rad(last_rad);
+        return;
+    }
+
+    sweep(last_rad, last_rad + offset, dur_ms);
+}
+
+int CalServo::getChannel() {
+    return channel;
+}
+
+float CalServo::get_last_rad() {
+    return last_rad;
 }
