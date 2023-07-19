@@ -1,7 +1,4 @@
-set(SOURCES CalServo.cpp)
+add_library(CalServo CalServo.cpp)
 
-idf_component_register(
-    SRCS ${SOURCES}
-    INCLUDE_DIRS . 
-    REQUIRES driver
-)
+target_link_libraries(CalServo PCA9685)
+target_include_directories(CalServo PUBLIC <path_to_PCA9685_headers>)
