@@ -1,9 +1,15 @@
 #include "CalServo.h"
 
 #include <cmath>
-#include <unistd.h>
 #include <iostream>
+
+#ifdef ESP_PLATFORM
+#include "lwip/sys.h"
+#include "driver/ledc.h"
+#else
+#include <unistd.h>
 #include <sys/time.h>
+#endif
 
 
 CalServo::CalServo(PCA9685* cont_p, int channel) {
@@ -92,17 +98,24 @@ void CalServo::sweep(float start, float dest, int dur_ms) {
     if(start == dest)
         return;
     
-    int dt_ns = dur_ms / abs(dest - start) * 1000000 / 0.0175;
-    int dir = (dest - start) > 0 ? 1 : -1;
-    float current = start;
-    
+#ifdef ESP_PLATFORM
+    int dt_ms = dur_ms / abs(dest - start) / 0.0175;
+#else
     struct timespec timeNow;
     clock_gettime(CLOCK_MONOTONIC, &timeNow);
-    
+    int dt_ns = dur_ms / abs(dest - start) * 1000000 / 0.0175;
+#endif
+
+    int dir = (dest - start) > 0 ? 1 : -1;
+    float current = start;
+
     while(current*dir < dest*dir) {
         set_rad(current);
         current += dir;
 
+#ifdef ESP_PLATFORM
+    vTaskDelay(dt_ms / portTICK_PERIOD_MS);
+#else
         // Add dt_ns to current time
         timeNow.tv_nsec += dt_ns; // dt_ns in nanoseconds
 
@@ -114,6 +127,7 @@ void CalServo::sweep(float start, float dest, int dur_ms) {
 
         // Sleep until the next dt_ns point
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &timeNow, nullptr);
+#endif
     }
 }
 
